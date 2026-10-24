@@ -18,9 +18,11 @@
 
 ## 1. Context Map
 
-Внутренние контексты: Customer Management, Program and Partner Management, Bonus Accounts, Loyalty Rules and Levels, Campaigns and Promo Codes, Notifications. Operation History хранит историю операций.
+Внутренние контексты: Customer Management, Program and Partner Management, Bonus Accounts,
+Loyalty Rules and Levels, Campaigns and Promo Codes, Notifications. Operation History хранит историю операций.
 
-Каждый блок обозначает область ответственности внутри системы. Все связи показаны одинаково: стрелка направлена от источника информации к её получателю, подпись описывает передаваемые данные.
+Каждый блок обозначает область ответственности внутри системы. Все связи показаны одинаково:
+стрелка направлена от источника информации к её получателю, подпись описывает передаваемые данные.
 
 ![Context Map](img/context-map-20261023-120351.svg)
 
