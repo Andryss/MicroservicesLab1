@@ -24,14 +24,13 @@ Loyalty Rules and Levels, Campaigns and Promo Codes, Notifications. Operation Hi
 Каждый блок обозначает область ответственности внутри системы. Все связи показаны одинаково:
 стрелка направлена от источника информации к её получателю, подпись описывает передаваемые данные.
 
-![Context Map](img/context-map-20261023-120351.svg)
+![Context Map](img/context-map-20261028-135811.svg)
 
 <details>
 <summary>Исходник PlantUML и генерация PNG/SVG</summary>
 
 ```plantuml
 @startuml ContextMap
-!pragma layout smetana
 left to right direction
 
 rectangle "Customer Management" as customers
@@ -42,17 +41,17 @@ rectangle "Campaigns and Promo Codes" as campaigns
 rectangle "Notifications" as notifications
 rectangle "Operation History" as history
 
-customers --> accounts : Customer identity
-customers --> notifications : Contact details
-programs --> accounts : Program membership\nand partner permissions
-programs --> history : History access scope
-programs --> loyalty : Program configuration
-campaigns --> accounts : Campaign and promo terms
-loyalty --> accounts : Bonus policy\nand loyalty level
-accounts --> loyalty : Account activity
-accounts --> history : Account transactions
-accounts --> notifications : Balance changes
-loyalty --> notifications : Loyalty level changes
+customers --> accounts : Идентичность клиента
+customers --> notifications : Контактные данные
+programs --> accounts : Участие в программе\nи права компании
+programs --> history : Область доступа к истории
+programs --> loyalty : Настройки программы
+campaigns --> accounts : Условия акций и промокодов
+loyalty --> accounts : Правила начисления\nи уровень клиента
+accounts --> loyalty : Операции по счёту
+accounts --> history : Проведённые операции
+accounts --> notifications : Изменения баланса
+loyalty --> notifications : Изменения уровня клиента
 @enduml
 ```
 
@@ -60,7 +59,7 @@ loyalty --> notifications : Loyalty level changes
 # Из корня репозитория; нужна команда plantuml.
 format=svg # или png
 image="docs/img/context-map-$(date +%Y%m%d-%H%M%S).$format"
-sed -n '/^@startuml/,/^@enduml/p' docs/decomposition.md > /tmp/microservices-context-map.puml
+sed -n '/^@startuml ContextMap$/,/^@enduml$/p' docs/decomposition.md > /tmp/microservices-context-map.puml
 plantuml -t"$format" -pipe < /tmp/microservices-context-map.puml > "$image"
 ```
 
@@ -379,3 +378,122 @@ Scalability:
   Допустимую задержку необходимо уточнить.
 - **Проверка производительности:** единое владение не определяет число реплик или производительность БД
   и не гарантирует выдержки заданной нагрузки. Нужны профиль запросов и нагрузочные испытания.
+
+### 3.6. Итоговые C4-диаграммы
+
+#### 3.6.1. Контекстная диаграмма
+
+![Контекстная диаграмма C4 — Loyalty Platform](img/c4-context-20261028-140607.svg)
+
+<details>
+<summary>Исходник PlantUML и генерация PNG/SVG</summary>
+
+```plantuml
+@startuml C4Context
+!include <C4/C4_Context>
+left to right direction
+title Контекстная диаграмма — Loyalty Platform
+
+Person(customer, "Клиент", "Накапливает и тратит бонусы у компаний-участников")
+Person(manager, "Представитель компании", "Управляет своей программой и участием в других программах")
+System_Ext(trading, "Торговые системы", "Клиентские и административные каналы компаний-участников")
+System(platform, "Loyalty Platform", "Общие счета клиентов внутри программы; правила, уровни и промокоды")
+System_Ext(messaging, "Провайдеры уведомлений", "Доставляют сообщения клиентам")
+
+Rel(customer, trading, "Накапливает и тратит бонусы; просматривает операции")
+Rel(manager, platform, "Управляет программами, партнёрами, правилами и акциями")
+Rel(trading, platform, "Ведёт клиентов, программы, правила и промокоды; проводит операции и запрашивает историю")
+Rel(platform, messaging, "Передаёт уведомления об изменениях баланса и уровня")
+Rel(messaging, customer, "Доставляет уведомления")
+
+SHOW_LEGEND()
+@enduml
+```
+
+```bash
+# Из корня репозитория; нужна команда plantuml со стандартной библиотекой C4.
+format=svg # или png
+image="docs/img/c4-context-$(date +%Y%m%d-%H%M%S).$format"
+sed -n '/^@startuml C4Context$/,/^@enduml$/p' docs/decomposition.md > /tmp/microservices-c4-context.puml
+plantuml -t"$format" -pipe < /tmp/microservices-c4-context.puml > "$image"
+```
+
+</details>
+
+#### 3.6.2. Контейнерная диаграмма
+
+![Контейнерная диаграмма C4 — Loyalty Platform](img/c4-container-20261028-141306.svg)
+
+<details>
+<summary>Исходник PlantUML и генерация PNG/SVG</summary>
+
+```plantuml
+@startuml C4Container
+!pragma layout elk
+!include <C4/C4_Container>
+LAYOUT_TOP_DOWN()
+title Контейнерная диаграмма — Loyalty Platform
+
+Person(customer, "Клиент", "Накапливает и тратит бонусы у компаний-участников")
+System_Ext(trading, "Торговые системы", "Клиентские операции и управление программами компаний")
+System_Ext(messaging, "Провайдеры уведомлений", "Доставляют сообщения клиентам")
+
+System_Boundary(platform, "Loyalty Platform") {
+  Container(customers, "Customer Management", "REST-сервис", "Идентичность клиента и контакты")
+  Container(programs, "Program and Partner Management", "REST-сервис", "Программы, участие компаний и права")
+  Container(accounts, "Bonus Accounts", "REST-сервис", "Единственный владелец счетов, балансов и результатов операций")
+  Container(rules, "Loyalty Rules and Levels", "REST-сервис", "Расчёт бонусов и уровни клиентов")
+  Container(campaigns, "Campaigns and Promo Codes", "REST-сервис", "Условия акций и промокодов")
+  Container(notifications, "Notifications", "Сервис", "Подготовка, доставка и повторы уведомлений")
+  Container(history, "Operation History", "REST-сервис", "Долговременная история операций и её чтение")
+
+  ContainerDb(customers_db, "Customer DB", "БД", "Customer: профиль и контакты")
+  ContainerDb(programs_db, "Program DB", "БД", "LoyaltyProgram, Merchant, ProgramMembership")
+  ContainerDb(accounts_db, "Account DB", "БД", "LoyaltyAccount, Transaction и outbox")
+  ContainerDb(rules_db, "Rules and Levels DB", "БД", "Rule, LoyaltyLevel, CustomerLevel")
+  ContainerDb(campaigns_db, "Campaign DB", "БД", "Campaign, PromoCode")
+  ContainerDb(notifications_db, "Notification DB", "БД", "Notification: состояние доставки")
+  ContainerDb(history_db, "History DB", "БД", "OperationHistory: отдельно от транзакционных данных")
+}
+
+Rel(customer, trading, "Накапливает и тратит бонусы; просматривает операции")
+Rel_U(messaging, customer, "Доставляет уведомления")
+Rel(trading, customers, "Регистрирует клиентов", "HTTPS / REST")
+Rel(trading, programs, "Управляет программами и участием компаний", "HTTPS / REST")
+Rel(trading, campaigns, "Создаёт акции и промокоды", "HTTPS / REST")
+Rel(trading, rules, "Настраивает правила начисления бонусов", "HTTPS / REST")
+Rel(trading, accounts, "Открывает счета; запрашивает начисления и списания", "HTTPS / REST")
+Rel(trading, history, "Запрашивает историю операций", "HTTPS / REST")
+
+Rel(accounts, customers, "Проверяет идентичность клиента", "REST")
+Rel(accounts, programs, "Проверяет участие компании и права на операцию", "REST")
+Rel(accounts, rules, "Запрашивает расчёт бонусов", "REST")
+Rel(accounts, campaigns, "Проверяет условия акций и промокодов", "REST")
+Rel(notifications, messaging, "Отправляет уведомления", "HTTPS")
+
+Rel(accounts, rules, "Передаёт операции для пересчёта уровня", "Kafka")
+Rel(accounts, history, "Передаёт проведённые операции", "Kafka")
+Rel(accounts, notifications, "Передаёт изменения баланса", "Kafka")
+Rel(rules, notifications, "Передаёт изменения уровня", "Kafka")
+
+Rel_D(customers, customers_db, "Ведёт профили клиентов")
+Rel_D(programs, programs_db, "Ведёт программы и участие компаний")
+Rel_D(accounts, accounts_db, "Фиксирует баланс и outbox одной транзакцией")
+Rel_D(rules, rules_db, "Ведёт правила и уровни")
+Rel_D(campaigns, campaigns_db, "Ведёт акции и промокоды")
+Rel_D(notifications, notifications_db, "Сохраняет состояние доставки")
+Rel_D(history, history_db, "Хранит и читает историю операций")
+
+SHOW_LEGEND()
+@enduml
+```
+
+```bash
+# Из корня репозитория; нужна команда plantuml со стандартной библиотекой C4.
+format=svg # или png
+image="docs/img/c4-container-$(date +%Y%m%d-%H%M%S).$format"
+sed -n '/^@startuml C4Container$/,/^@enduml$/p' docs/decomposition.md > /tmp/microservices-c4-container.puml
+plantuml -t"$format" -pipe < /tmp/microservices-c4-container.puml > "$image"
+```
+
+</details>
