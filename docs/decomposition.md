@@ -27,13 +27,9 @@
 
 ## 1. Context Map
 
-Внутренние контексты: Customer Management, Program and Partner Management, Bonus Accounts,
-Loyalty Rules and Levels, Campaigns and Promo Codes, Notifications. Operation History хранит историю операций.
+![Context Map](img/context-map-20261112-233401.svg)
 
-Каждый блок обозначает область ответственности внутри системы. Все связи показаны одинаково:
-стрелка направлена от источника информации к её получателю, подпись описывает передаваемые данные.
-
-![Context Map](img/context-map-20261028-135811.svg)
+Стрелка направлена от источника информации к её получателю.
 
 <details>
 <summary>Исходник PlantUML и генерация PNG/SVG</summary>
@@ -41,26 +37,32 @@ Loyalty Rules and Levels, Campaigns and Promo Codes, Notifications. Operation Hi
 ```plantuml
 @startuml ContextMap
 left to right direction
+skinparam ranksep 28
+skinparam nodesep 42
 
-rectangle "Customer Management" as customers
-rectangle "Program and Partner Management" as programs
-rectangle "Bonus Accounts" as accounts
-rectangle "Loyalty Rules and Levels" as loyalty
-rectangle "Campaigns and Promo Codes" as campaigns
-rectangle "Notifications" as notifications
-rectangle "Operation History" as history
+rectangle "**Customer Management**\n<size:12>Идентичность и профили клиентов</size>" as customers
+rectangle "**Loyalty Programs**\n<size:12>Владельцы и настройки программ</size>" as programs
+rectangle "**Partner Participation**\n<size:12>Допуск и права компаний</size>" as partners
+rectangle "**Bonus Accounts**\n<size:12>Баланс и операции по счёту</size>" as accounts
+rectangle "**Bonus Rules**\n<size:12>Правила расчёта начислений</size>" as rules
+rectangle "**Loyalty Levels**\n<size:12>Уровни и прогресс клиентов</size>" as levels
+rectangle "**Campaigns and Promo Codes**\n<size:12>Управление акциями и промокодами</size>" as campaigns
+rectangle "**Notifications**\n<size:12>Доставка уведомлений</size>" as notifications
 
 customers --> accounts : Идентичность клиента
 customers --> notifications : Контактные данные
-programs --> accounts : Участие в программе\nи права компании
-programs --> history : Область доступа к истории
-programs --> loyalty : Настройки программы
-campaigns --> accounts : Условия акций и промокодов
-loyalty --> accounts : Правила начисления\nи уровень клиента
-accounts --> loyalty : Операции по счёту
-accounts --> history : Проведённые операции
+programs -down-> partners : Владелец\nпрограммы
+programs --> rules : Настройки программы
+partners --> accounts : Участие в программе\nи права на операции
+partners --> rules : Права на изменение правил
+partners --> campaigns : Права на управление\nакциями
+campaigns --> accounts : Условия акций\nи промокодов
+accounts -left-> rules : Параметры начисления\nи условия акции
+rules -right-> accounts : Рассчитанное начисление
+accounts --> levels : Проведённые\nоперации
+levels --> rules : Уровень клиента
 accounts --> notifications : Изменения баланса
-loyalty --> notifications : Изменения уровня клиента
+levels --> notifications : Изменения\nуровня клиента
 @enduml
 ```
 
