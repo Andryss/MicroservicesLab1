@@ -81,18 +81,52 @@ plantuml -t"$format" -pipe < /tmp/microservices-context-map.puml > "$image"
 ### 2.1. Customer Management
 
 ```text
-Service: Customer Management
+Service: Customer Management (контекст: Customer Management)
 
 Responsibility:
 единая идентичность клиента, профиль и контактные данные.
+При регистрации merchantId сверяется с компанией из проверенной учётной записи вызывающего.
 
 Owned Data:
-Customer (профиль, контакты, внешние идентификаторы в торговых системах)
+Customer (профиль, контакты, привязки к компаниям и внешним идентификаторам)
 
 API:
-POST /customers
-GET /customers/{customerId}
-PATCH /customers/{customerId}
+- POST /customers — зарегистрировать клиента
+  Запрос:
+    {
+      "name": "Анна",
+      "contacts": {
+        "email": "anna@example.test",
+        "phone": "+12025550142"
+      },
+      "merchantId": "shop-8",
+      "externalCustomerId": "ext-42"
+    }
+  Ответ:
+    {
+      "customerId": "cust-42"
+    }
+
+- GET /customers/{customerId} — получить профиль и контакты
+  Ответ:
+    {
+      "name": "Анна",
+      "contacts": {
+        "email": "anna@example.test",
+        "phone": "+12025550142"
+      }
+    }
+
+- PATCH /customers/{customerId} — обновить профиль или контакты
+  Запрос:
+    {
+      "contacts": {
+        "email": "anna.new@example.test",
+        "phone": "+12025550143"
+      }
+    }
+  Ответ:
+    OK
 
 Dependencies:
 in:
@@ -106,13 +140,14 @@ REST - API профиля клиента и получение контактн�
 
 Scalability:
 Горизонтальное масштабирование сервиса.
-Шардирование БД по клиентам.
+Шардирование профилей по customerId; поиск профиля и контактов по первичному ключу.
+Уникальный индекс (merchant_id, external_customer_id) для сопоставления с customerId.
 ```
 
 ### 2.2. Program and Partner Management
 
 ```text
-Service: Program and Partner Management
+Service: Program and Partner Management (контексты: Loyalty Programs, Partner Participation)
 
 Responsibility:
 создание программ, регистрация компаний, одобрение участия и управление правами партнёров. Создание
@@ -120,15 +155,71 @@ Responsibility:
 
 Owned Data:
 LoyaltyProgram (компания-владелец)
-Merchant
+Merchant (название и юридические реквизиты)
 ProgramMembership (статус участия компании и её права в программе)
 
 API:
-POST /merchants
-POST /programs
-POST /programs/{programId}/memberships
-PATCH /programs/{programId}/memberships/{merchantId}
-POST /permissions/check
+- POST /merchants — зарегистрировать компанию
+  Запрос:
+    {
+      "name": "Магазин",
+      "legalName": "ООО «Пример»",
+      "inn": "<ИНН>",
+      "ogrn": "<ОГРН>",
+      "legalAddress": "<юридический адрес>"
+    }
+  Ответ:
+    {
+      "merchantId": "shop-7"
+    }
+
+- POST /programs — создать программу
+  Запрос:
+    {
+      "name": "Бонусы за покупки",
+      "ownerMerchantId": "shop-7",
+      "settings": {
+        "currency": "RUB"
+      }
+    }
+  Ответ:
+    {
+      "programId": "prog-1"
+    }
+
+- POST /programs/{programId}/memberships — подать заявку на участие
+  Запрос:
+    {
+      "merchantId": "shop-8"
+    }
+  Ответ:
+    {
+      "status": "PENDING"
+    }
+
+- PATCH /programs/{programId}/memberships/{merchantId} — изменить статус или права участника
+  Запрос:
+    {
+      "status": "ACTIVE",
+      "permissions": [
+        "ACCRUE",
+        "REDEEM"
+      ]
+    }
+  Ответ:
+    OK
+
+- POST /permissions/check — проверить право на действие, например на чтение истории
+  Запрос:
+    {
+      "programId": "prog-1",
+      "merchantId": "shop-7",
+      "action": "READ_HISTORY"
+    }
+  Ответ:
+    {
+      "allowed": true
+    }
 
 Dependencies:
 in:
@@ -137,7 +228,7 @@ out:
 - Bonus Accounts : участие компании в программе и права на операции
 - Loyalty Rules and Levels : настройки программы и права на изменение правил
 - Campaigns and Promo Codes : участие компании и права управления акциями
-- Operation History : область доступа к истории операций
+- Operation History : право на чтение истории операций
 
 Communication:
 REST - API программ и компаний, управление участием и проверка прав.
@@ -145,12 +236,13 @@ Kafka - передача настроек созданных программ в
 
 Scalability:
 Горизонтальное масштабирование сервиса.
+Уникальный индекс (program_id, merchant_id) для проверки участия и прав компании в программе.
 ```
 
 ### 2.3. Bonus Accounts
 
 ```text
-Service: Bonus Accounts
+Service: Bonus Accounts (контекст: Bonus Accounts)
 
 Responsibility:
 открытие счёта клиента в программе, баланс, проведение начислений и списаний; защита
@@ -161,10 +253,50 @@ LoyaltyAccount (баланс клиента в конкретной програ
 Transaction (начисление или списание, компания и результат операции)
 
 API:
-POST /programs/{programId}/accounts
-GET /accounts/{accountId}
-POST /accounts/{accountId}/accruals
-POST /accounts/{accountId}/redemptions
+- POST /programs/{programId}/accounts — открыть бонусный счёт в указанной программе
+  Запрос:
+    {
+      "customerId": "cust-42"
+    }
+  Ответ:
+    {
+      "accountId": "acc-42"
+    }
+
+- GET /accounts/{accountId} — получить счёт и текущий баланс
+  Ответ:
+    {
+      "programId": "prog-1",
+      "customerId": "cust-42",
+      "balance": 1200
+    }
+
+- POST /accounts/{accountId}/accruals — начислить бонусы за покупку
+  Запрос:
+    Idempotency-Key: order-816
+    {
+      "purchaseAmount": 3000,
+      "currency": "RUB",
+      "promoCode": "WELCOME" // при наличии
+    }
+  Ответ:
+    {
+      "operationId": "op-900",
+      "points": 300,
+      "balance": 1500
+    }
+
+- POST /accounts/{accountId}/redemptions — списать бонусы
+  Запрос:
+    Idempotency-Key: order-817
+    {
+      "points": 300
+    }
+  Ответ:
+    {
+      "operationId": "op-901",
+      "balance": 1200
+    }
 
 Dependencies:
 in:
@@ -183,13 +315,17 @@ Kafka - передача проведённых операций для исто
 
 Scalability:
 Горизонтальное масштабирование сервиса.
-Шардирование БД по бонусным счетам.
+Счёт и его операции хранятся на одном шарде. Размещение счёта определяется парой (program_id, customer_id),
+по accountId можно определить его шард.
+Уникальный индекс (program_id, customer_id) для открытия одного счёта клиента в программе.
+Уникальный индекс (account_id, merchant_id, idempotency_key) для защиты от повторного проведения операции.
+Индекс outbox (created_at, id) для выборки сообщений к публикации.
 ```
 
 ### 2.4. Loyalty Rules and Levels
 
 ```text
-Service: Loyalty Rules and Levels
+Service: Loyalty Rules and Levels (контексты: Bonus Rules, Loyalty Levels)
 
 Responsibility:
 расчёт начисления по правилам программы, уровню клиента и условиям акции; определение и пересчёт
@@ -201,9 +337,42 @@ LoyaltyLevel
 CustomerLevel (уровень и прогресс клиента в конкретной программе)
 
 API:
-POST /programs/{programId}/calculations
-PUT /programs/{programId}/rules/{ruleId}
-GET /programs/{programId}/customers/{customerId}/level
+- POST /programs/{programId}/calculations — рассчитать начисление
+  Запрос:
+    {
+      "customerId": "cust-42",
+      "purchaseAmount": 3000,
+      "currency": "RUB",
+      "campaignTerms": { // при наличии
+        "bonusMultiplier": 2
+      }
+    }
+  Ответ:
+    {
+      "points": 300
+    }
+
+- PUT /programs/{programId}/rules/{ruleId} — сохранить правило начисления
+  Запрос:
+    {
+      "conditions": {
+        "minPurchaseAmount": 1000
+      },
+      "reward": {
+        "percent": 5
+      }
+    }
+  Ответ:
+    OK
+
+- GET /programs/{programId}/customers/{customerId}/level — получить уровень и прогресс
+  Ответ:
+    {
+      "level": "SILVER",
+      "progress": {
+        "earnedPoints": 1500
+      }
+    }
 
 Dependencies:
 in:
@@ -219,25 +388,73 @@ Kafka - получение настроек программ и операций
 
 Scalability:
 Горизонтальное масштабирование сервиса.
-Кеширование правил программы.
+Отдельная инсталляция Redis: набор действующих правил по programId.
+При промахе читаем из БД и сохраняем с TTL; после изменения правил или настроек программы сбрасываем запись.
+Индекс (program_id, status) для загрузки действующих правил программы.
+Уникальный индекс (program_id, customer_id) для чтения и обновления уровня клиента.
 ```
 
 ### 2.5. Campaigns and Promo Codes
 
 ```text
-Service: Campaigns and Promo Codes
+Service: Campaigns and Promo Codes (контекст: Campaigns and Promo Codes)
 
 Responsibility:
-управление акциями и промокодами, проверка сроков и условий их применения в программе и компании.
+управление акциями и промокодами. При проверке кода учитываются срок действия, компания и условия покупки.
 
 Owned Data:
 Campaign (программа, условия и компании-участники)
 PromoCode (программа, условия, срок действия и компании-участники; код уникален в программе)
 
 API:
-POST /programs/{programId}/campaigns
-POST /programs/{programId}/promocodes
-POST /programs/{programId}/promocodes/validate
+- POST /programs/{programId}/campaigns — создать акцию
+  Запрос:
+    {
+      "name": "Двойные бонусы",
+      "terms": {
+        "bonusMultiplier": 2
+      },
+      "merchantIds": [
+        "shop-8"
+      ]
+    }
+  Ответ:
+    {
+      "campaignId": "campaign-1"
+    }
+
+- POST /programs/{programId}/promocodes — создать промокод
+  Запрос:
+    {
+      "code": "WELCOME",
+      "expiresAt": "2027-12-31T23:59:59Z",
+      "terms": {
+        "bonusMultiplier": 2
+      },
+      "merchantIds": [
+        "shop-8"
+      ]
+    }
+  Ответ:
+    {
+      "promoCodeId": "promo-1"
+    }
+
+- POST /programs/{programId}/promocodes/validate — проверить применимость промокода к покупке
+  Запрос:
+    {
+      "code": "WELCOME",
+      "merchantId": "shop-8",
+      "purchaseAmount": 3000,
+      "currency": "RUB"
+    }
+  Ответ:
+    {
+      "applicable": true,
+      "campaignTerms": {
+        "bonusMultiplier": 2
+      }
+    }
 
 Dependencies:
 in:
@@ -250,22 +467,30 @@ REST - API акций и промокодов, проверка условий �
 
 Scalability:
 Горизонтальное масштабирование сервиса.
-Кеширование акций и промокодов.
+Отдельная инсталляция Redis: определения акций по (programId, campaignId), промокодов — по (programId, code).
+При промахе читаем из БД и сохраняем с TTL; после изменений сбрасываем затронутые записи.
+Уникальный индекс (program_id, code) для поиска промокода и уникальности кода внутри программы.
 ```
 
 ### 2.6. Notifications
 
 ```text
-Service: Notifications
+Service: Notifications (контекст: Notifications)
 
 Responsibility:
-формирование и доставка уведомлений об изменениях баланса и уровня, повторные попытки доставки.
+формирование и доставка уведомлений об изменениях баланса и уровня. Сервис отдельно обрабатывает события,
+повторяет неудачные отправки и изолирует бонусные операции от сбоев провайдеров доставки.
 
 Owned Data:
-Notification (получатель, канал и статус доставки)
+Notification (получатель, канал, статус и время следующей попытки доставки)
 
 API:
-GET /notifications/{notificationId}
+- GET /notifications/{notificationId} — получить статус доставки
+  Ответ:
+    {
+      "channel": "EMAIL",
+      "status": "DELIVERED"
+    }
 
 Dependencies:
 in:
@@ -282,27 +507,44 @@ HTTPS - передача уведомлений внешним провайде�
 
 Scalability:
 Горизонтальное масштабирование обработчиков уведомлений.
+Индекс (status, next_attempt_at) для выборки уведомлений, готовых к повторной отправке.
 ```
 
 ### 2.7. Operation History
 
 ```text
-Service: Operation History
+Service: Operation History (проекция контекста Bonus Accounts, без собственного контекста)
 
 Responsibility:
 построение и чтение долговременной истории операций в отдельном от транзакционных данных хранилище.
+Чтение истории и обработку событий можно масштабировать отдельно от проведения бонусных операций.
+Возвращаем операции без фильтра по компании. Для этого нужно право на чтение всей истории счёта.
 
 Owned Data:
 OperationHistory (счёт, программа, клиент, компания и проведённые операции)
 
 API:
-GET /accounts/{accountId}/history
-Курсорная пагинация.
+- GET /accounts/{accountId}/history — получить историю счёта от новых операций к старым
+  Запрос:
+    ?cursor=cursor-1  // для следующей страницы
+  Ответ:
+    {
+      "operations": [
+        {
+          "operationId": "op-901",
+          "type": "REDEMPTION",
+          "points": 300,
+          "occurredAt": "2026-11-13T10:00:00Z",
+          "merchantId": "shop-8"
+        }
+      ],
+      "nextCursor": "cursor-2"
+    }
 
 Dependencies:
 in:
 - Bonus Accounts : проведённые операции по счёту
-- Program and Partner Management : область доступа к истории операций
+- Program and Partner Management : право на чтение истории операций
 out:
 - Нет
 
@@ -313,7 +555,60 @@ Kafka - получение проведённых операций для пос
 Scalability:
 Горизонтальное масштабирование сервиса.
 Шардирование БД по бонусным счетам.
+Индекс B-tree (account_id, occurred_at DESC, operation_id DESC) для курсорной пагинации по счёту.
+Уникальный индекс (account_id, operation_id) для защиты от дублей при повторной доставке событий.
 ```
+
+### 2.8. API Gateway
+
+```text
+Service: API Gateway (без доменного контекста)
+
+Responsibility:
+единая точка входа для прикладного API и входа в систему.
+Маршруты входа и выдачи токенов проксирует в Keycloak без требования токена доступа.
+На прикладных маршрутах проверяет токен доступа и направляет вызов нужному сервису.
+
+Owned Data:
+Нет
+
+API:
+- GET /accounts/{accountId} — пример внешнего маршрута к Bonus Accounts
+  Запрос:
+    Authorization: Bearer <access_token>
+  Ответ:
+    {
+      "programId": "prog-1",
+      "customerId": "cust-42",
+      "balance": 1200
+    }
+
+Dependencies:
+in:
+- Keycloak : публичные ключи для проверки токенов (JWKS)
+out:
+- Keycloak : запросы входа и выдачи токенов
+- Прикладные сервисы : запросы с проверенной идентичностью вызывающего
+
+Communication:
+HTTPS / REST - маршрутизация прикладных запросов.
+HTTPS - проксирование маршрутов входа и выдачи токенов, получение JWKS.
+
+Scalability:
+Горизонтальное масштабирование реплик.
+Публичные ключи хранятся локально в памяти реплик с периодическим обновлением.
+Ориентир — 50 000 RPS.
+```
+
+### 2.T. Команды
+
+| Команда | Сервисы | Зона ответственности |
+| --- | --- | --- |
+| 1 | `Bonus Accounts`, `Operation History` | Проведение операций и их отображение в истории |
+| 2 | `Program and Partner Management`, `Campaigns and Promo Codes` | Программы и акции |
+| 3 | `Loyalty Rules and Levels` | Расчёт начислений и прогресс клиента |
+| 4 | `Customer Management`, `Notifications` | Профили, контакты и доставка уведомлений |
+| 5 | `API Gateway`, Keycloak (SSO), общая Kafka | Доступность и мониторинг |
 
 ## 3. ADR-001. Единое владение бонусным балансом
 
