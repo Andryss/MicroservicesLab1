@@ -688,7 +688,7 @@ Scalability:
 
 #### 3.6.1. Контекстная диаграмма
 
-![Контекстная диаграмма C4 — Loyalty Platform](img/c4-context-20261028-140607.svg)
+![Контекстная диаграмма C4 — Loyalty Platform](img/c4-context-20261114-184557.svg)
 
 <details>
 <summary>Исходник PlantUML и генерация PNG/SVG</summary>
@@ -703,11 +703,14 @@ Person(customer, "Клиент", "Накапливает и тратит бон�
 Person(manager, "Представитель компании", "Управляет своей программой и участием в других программах")
 System_Ext(trading, "Торговые системы", "Клиентские и административные каналы компаний-участников")
 System(platform, "Loyalty Platform", "Общие счета клиентов внутри программы; правила, уровни и промокоды")
+System_Ext(sso, "Внешний SSO-провайдер", "Подтверждает личность при входе в кабинет")
 System_Ext(messaging, "Провайдеры уведомлений", "Доставляют сообщения клиентам")
 
 Rel(customer, trading, "Накапливает и тратит бонусы; просматривает операции")
+Rel(customer, platform, "Входит в личный кабинет и смотрит баланс")
 Rel(manager, platform, "Управляет программами, партнёрами, правилами и акциями")
 Rel(trading, platform, "Ведёт клиентов, программы, правила и промокоды; проводит операции и запрашивает историю")
+Rel(platform, sso, "Использует для входа и получения идентификатора пользователя")
 Rel(platform, messaging, "Передаёт уведомления об изменениях баланса и уровня")
 Rel(messaging, customer, "Доставляет уведомления")
 
@@ -727,7 +730,7 @@ plantuml -t"$format" -pipe < /tmp/microservices-c4-context.puml > "$image"
 
 #### 3.6.2. Контейнерная диаграмма
 
-![Контейнерная диаграмма C4 — Loyalty Platform](img/c4-container-20261028-141306.svg)
+![Контейнерная диаграмма C4 — Loyalty Platform](img/c4-container-20261115-114302.svg)
 
 <details>
 <summary>Исходник PlantUML и генерация PNG/SVG</summary>
@@ -740,10 +743,14 @@ LAYOUT_TOP_DOWN()
 title Контейнерная диаграмма — Loyalty Platform
 
 Person(customer, "Клиент", "Накапливает и тратит бонусы у компаний-участников")
+Person(manager, "Представитель компании", "Управляет программами и участием компаний")
 System_Ext(trading, "Торговые системы", "Клиентские операции и управление программами компаний")
+System_Ext(sso, "Внешний SSO-провайдер", "Подтверждает личность при входе в кабинет")
 System_Ext(messaging, "Провайдеры уведомлений", "Доставляют сообщения клиентам")
 
 System_Boundary(platform, "Loyalty Platform") {
+  Container(gateway, "API Gateway", "HTTPS", "Единая точка входа, проверка токенов и маршрутизация")
+  Container(keycloak, "Keycloak", "OAuth 2.0 / OIDC", "Вход через внешнего провайдера и токены для API платформы")
   Container(customers, "Customer Management", "REST-сервис", "Идентичность клиента и контакты")
   Container(programs, "Program and Partner Management", "REST-сервис", "Программы, участие компаний и права")
   Container(accounts, "Bonus Accounts", "REST-сервис", "Единственный владелец счетов, балансов и результатов операций")
@@ -752,34 +759,51 @@ System_Boundary(platform, "Loyalty Platform") {
   Container(notifications, "Notifications", "Сервис", "Подготовка, доставка и повторы уведомлений")
   Container(history, "Operation History", "REST-сервис", "Долговременная история операций и её чтение")
 
-  ContainerDb(customers_db, "Customer DB", "БД", "Customer: профиль и контакты")
-  ContainerDb(programs_db, "Program DB", "БД", "LoyaltyProgram, Merchant, ProgramMembership")
-  ContainerDb(accounts_db, "Account DB", "БД", "LoyaltyAccount, Transaction и outbox")
-  ContainerDb(rules_db, "Rules and Levels DB", "БД", "Rule, LoyaltyLevel, CustomerLevel")
-  ContainerDb(campaigns_db, "Campaign DB", "БД", "Campaign, PromoCode")
-  ContainerDb(notifications_db, "Notification DB", "БД", "Notification: состояние доставки")
-  ContainerDb(history_db, "History DB", "БД", "OperationHistory: отдельно от транзакционных данных")
+  ContainerQueue(events, "Platform Events", "Kafka", "Топики настроек, операций по счетам и изменений уровней")
+  ContainerDb(rules_cache, "Rules Cache", "Redis", "Действующие правила по программе")
+  ContainerDb(campaigns_cache, "Campaigns Cache", "Redis", "Определения акций и промокодов")
+
+  ContainerDb(customers_db, "Customer DB", "PostgreSQL", "Customer: профиль и контакты")
+  ContainerDb(programs_db, "Program DB", "PostgreSQL", "LoyaltyProgram, Merchant, ProgramMembership")
+  ContainerDb(accounts_db, "Account DB", "PostgreSQL", "LoyaltyAccount, Transaction и outbox")
+  ContainerDb(rules_db, "Rules and Levels DB", "PostgreSQL", "Rule, LoyaltyLevel, CustomerLevel")
+  ContainerDb(campaigns_db, "Campaign DB", "PostgreSQL", "Campaign, PromoCode")
+  ContainerDb(notifications_db, "Notification DB", "PostgreSQL", "Notification: состояние доставки")
+  ContainerDb(history_db, "History DB", "PostgreSQL", "OperationHistory: отдельно от транзакционных данных")
 }
 
 Rel(customer, trading, "Накапливает и тратит бонусы; просматривает операции")
 Rel_U(messaging, customer, "Доставляет уведомления")
-Rel(trading, customers, "Регистрирует клиентов", "HTTPS / REST")
-Rel(trading, programs, "Управляет программами и участием компаний", "HTTPS / REST")
-Rel(trading, campaigns, "Создаёт акции и промокоды", "HTTPS / REST")
-Rel(trading, rules, "Настраивает правила начисления бонусов", "HTTPS / REST")
-Rel(trading, accounts, "Открывает счета; запрашивает начисления и списания", "HTTPS / REST")
-Rel(trading, history, "Запрашивает историю операций", "HTTPS / REST")
+Rel(customer, gateway, "Входит в кабинет и смотрит баланс", "HTTPS")
+Rel(manager, gateway, "Входит и управляет программами", "HTTPS")
+Rel(trading, gateway, "Получает токен интеграции и вызывает API", "HTTPS")
+Rel(gateway, keycloak, "Проксирует вход и выдачу токенов; получает JWKS", "HTTPS")
+Rel(keycloak, sso, "Обменивает код и получает ID пользователя", "OAuth 2.0")
+
+Rel(gateway, customers, "Профили клиентов", "REST")
+Rel(gateway, programs, "Программы и участие компаний", "REST")
+Rel(gateway, campaigns, "Акции и промокоды", "REST")
+Rel(gateway, rules, "Правила начисления и уровни", "REST")
+Rel(gateway, accounts, "Счета, баланс, начисления и списания", "REST")
+Rel(gateway, history, "Чтение истории счёта", "REST")
+Rel(gateway, notifications, "Статус доставки", "REST")
 
 Rel(accounts, customers, "Проверяет идентичность клиента", "REST")
 Rel(accounts, programs, "Проверяет участие компании и права на операцию", "REST")
 Rel(accounts, rules, "Запрашивает расчёт бонусов", "REST")
 Rel(accounts, campaigns, "Проверяет условия акций и промокодов", "REST")
+Rel(history, programs, "Проверяет право на чтение истории счёта", "REST")
 Rel(notifications, messaging, "Отправляет уведомления", "HTTPS")
 
-Rel(accounts, rules, "Передаёт операции для пересчёта уровня", "Kafka")
-Rel(accounts, history, "Передаёт проведённые операции", "Kafka")
-Rel(accounts, notifications, "Передаёт изменения баланса", "Kafka")
-Rel(rules, notifications, "Передаёт изменения уровня", "Kafka")
+Rel(programs, events, "Публикует настройки программ")
+Rel(accounts, events, "Публикует проведённые операции из outbox")
+Rel(rules, events, "Публикует изменения уровней")
+Rel(events, rules, "Настройки программ и операции для пересчёта уровня")
+Rel(events, history, "Операции для построения истории")
+Rel(events, notifications, "Изменения баланса и уровня")
+
+Rel(rules, rules_cache, "Кэширует действующие правила")
+Rel(campaigns, campaigns_cache, "Кэширует акции и промокоды")
 
 Rel_D(customers, customers_db, "Ведёт профили клиентов")
 Rel_D(programs, programs_db, "Ведёт программы и участие компаний")
