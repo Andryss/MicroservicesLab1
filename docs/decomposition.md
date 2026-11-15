@@ -209,12 +209,12 @@ API:
   Ответ:
     OK
 
-- POST /permissions/check — проверить право на действие, например на чтение истории
+- POST /permissions/check — проверить право на действие в программе
   Запрос:
     {
       "programId": "prog-1",
       "merchantId": "shop-7",
-      "action": "READ_HISTORY"
+      "action": "ACCRUE"
     }
   Ответ:
     {
@@ -228,7 +228,6 @@ out:
 - Bonus Accounts : участие компании в программе и права на операции
 - Loyalty Rules and Levels : настройки программы и права на изменение правил
 - Campaigns and Promo Codes : участие компании и права управления акциями
-- Operation History : право на чтение истории операций
 
 Communication:
 REST - API программ и компаний, управление участием и проверка прав.
@@ -518,13 +517,13 @@ Service: Operation History (проекция контекста Bonus Accounts, 
 Responsibility:
 построение и чтение долговременной истории операций в отдельном от транзакционных данных хранилище.
 Чтение истории и обработку событий можно масштабировать отдельно от проведения бонусных операций.
-Возвращаем операции без фильтра по компании. Для этого нужно право на чтение всей истории счёта.
+История доступна только клиенту по его счёту. При чтении сервис сверяет ID клиента с владельцем счёта в проекции.
 
 Owned Data:
 OperationHistory (счёт, программа, клиент, компания и проведённые операции)
 
 API:
-- GET /accounts/{accountId}/history — получить историю счёта от новых операций к старым
+- GET /accounts/{accountId}/history — получить историю своего счёта от новых операций к старым
   Запрос:
     ?cursor=cursor-1  // для следующей страницы
   Ответ:
@@ -544,12 +543,11 @@ API:
 Dependencies:
 in:
 - Bonus Accounts : проведённые операции по счёту
-- Program and Partner Management : право на чтение истории операций
 out:
 - Нет
 
 Communication:
-REST - API истории операций с проверкой прав доступа.
+REST - чтение истории счёта его владельцем.
 Kafka - получение проведённых операций для построения истории.
 
 Scalability:
@@ -688,7 +686,7 @@ Scalability:
 
 #### 3.6.1. Контекстная диаграмма
 
-![Контекстная диаграмма C4 — Loyalty Platform](img/c4-context-20261114-184557.svg)
+![Контекстная диаграмма C4 — Loyalty Platform](img/c4-context-20261115-162502.svg)
 
 <details>
 <summary>Исходник PlantUML и генерация PNG/SVG</summary>
@@ -706,10 +704,10 @@ System(platform, "Loyalty Platform", "Общие счета клиентов в�
 System_Ext(sso, "Внешний SSO-провайдер", "Подтверждает личность при входе в кабинет")
 System_Ext(messaging, "Провайдеры уведомлений", "Доставляют сообщения клиентам")
 
-Rel(customer, trading, "Накапливает и тратит бонусы; просматривает операции")
-Rel(customer, platform, "Входит в личный кабинет и смотрит баланс")
+Rel(customer, trading, "Накапливает и тратит бонусы")
+Rel(customer, platform, "Входит в личный кабинет и смотрит баланс и историю")
 Rel(manager, platform, "Управляет программами, партнёрами, правилами и акциями")
-Rel(trading, platform, "Ведёт клиентов, программы, правила и промокоды; проводит операции и запрашивает историю")
+Rel(trading, platform, "Ведёт клиентов, программы, правила и промокоды; проводит бонусные операции")
 Rel(platform, sso, "Использует для входа и получения идентификатора пользователя")
 Rel(platform, messaging, "Передаёт уведомления об изменениях баланса и уровня")
 Rel(messaging, customer, "Доставляет уведомления")
@@ -730,7 +728,7 @@ plantuml -t"$format" -pipe < /tmp/microservices-c4-context.puml > "$image"
 
 #### 3.6.2. Контейнерная диаграмма
 
-![Контейнерная диаграмма C4 — Loyalty Platform](img/c4-container-20261115-114302.svg)
+![Контейнерная диаграмма C4 — Loyalty Platform](img/c4-container-20261115-162502.svg)
 
 <details>
 <summary>Исходник PlantUML и генерация PNG/SVG</summary>
@@ -772,9 +770,9 @@ System_Boundary(platform, "Loyalty Platform") {
   ContainerDb(history_db, "History DB", "PostgreSQL", "OperationHistory: отдельно от транзакционных данных")
 }
 
-Rel(customer, trading, "Накапливает и тратит бонусы; просматривает операции")
+Rel(customer, trading, "Накапливает и тратит бонусы")
 Rel_U(messaging, customer, "Доставляет уведомления")
-Rel(customer, gateway, "Входит в кабинет и смотрит баланс", "HTTPS")
+Rel(customer, gateway, "Входит в кабинет и смотрит баланс и историю", "HTTPS")
 Rel(manager, gateway, "Входит и управляет программами", "HTTPS")
 Rel(trading, gateway, "Получает токен интеграции и вызывает API", "HTTPS")
 Rel(gateway, keycloak, "Проксирует вход и выдачу токенов; получает JWKS", "HTTPS")
@@ -785,14 +783,13 @@ Rel(gateway, programs, "Программы и участие компаний", 
 Rel(gateway, campaigns, "Акции и промокоды", "REST")
 Rel(gateway, rules, "Правила начисления и уровни", "REST")
 Rel(gateway, accounts, "Счета, баланс, начисления и списания", "REST")
-Rel(gateway, history, "Чтение истории счёта", "REST")
+Rel(gateway, history, "Передаёт запрос клиента на историю его счёта", "REST")
 Rel(gateway, notifications, "Статус доставки", "REST")
 
 Rel(accounts, customers, "Проверяет идентичность клиента", "REST")
 Rel(accounts, programs, "Проверяет участие компании и права на операцию", "REST")
 Rel(accounts, rules, "Запрашивает расчёт бонусов", "REST")
 Rel(accounts, campaigns, "Проверяет условия акций и промокодов", "REST")
-Rel(history, programs, "Проверяет право на чтение истории счёта", "REST")
 Rel(notifications, messaging, "Отправляет уведомления", "HTTPS")
 
 Rel(programs, events, "Публикует настройки программ")
@@ -823,6 +820,430 @@ format=svg # или png
 image="docs/img/c4-container-$(date +%Y%m%d-%H%M%S).$format"
 sed -n '/^@startuml C4Container$/,/^@enduml$/p' docs/decomposition.md > /tmp/microservices-c4-container.puml
 plantuml -t"$format" -pipe < /tmp/microservices-c4-container.puml > "$image"
+```
+
+</details>
+
+#### 3.6.3. Компонентные диаграммы
+
+##### [Customer Management](#21-customer-management)
+
+![Компонентная диаграмма C4 — Customer Management](img/c4-component-customer-management-20261115-160425.svg)
+
+<details>
+<summary>Исходник PlantUML и генерация PNG/SVG</summary>
+
+```plantuml
+@startuml C4ComponentCustomers
+!pragma layout elk
+!include <C4/C4_Component>
+LAYOUT_TOP_DOWN()
+title Компонентная диаграмма — Customer Management
+
+Container(gateway, "API Gateway", "HTTPS", "Маршрутизирует запросы к профилям")
+Container(accounts, "Bonus Accounts", "REST-сервис", "Проверяет клиента при открытии счёта")
+Container(notifications, "Notifications", "Сервис", "Запрашивает контакты для доставки")
+ContainerDb(db, "Customer DB", "PostgreSQL", "Профили, контакты и привязки к торговым системам")
+
+Container_Boundary(service, "Customer Management") {
+  Component(api, "Customer API", "REST", "Регистрация, чтение и обновление профилей")
+  Component(registration, "Customer Registration", "Компонент", "Сверяет компанию и связывает внешние ID с клиентом")
+  Component(profiles, "Customer Profiles", "Компонент", "Возвращает и обновляет профиль и контакты")
+  Component(repository, "Customer Repository", "Компонент", "Работает с профилями и внешними привязками")
+}
+
+Rel(gateway, api, "Работает с профилями", "REST")
+Rel(accounts, api, "Запрашивает данные клиента", "REST")
+Rel(notifications, api, "Запрашивает контакты", "REST")
+Rel(api, registration, "Передаёт регистрацию")
+Rel(api, profiles, "Передаёт запросы профиля")
+Rel(registration, repository, "Ищет привязку и сохраняет клиента")
+Rel(profiles, repository, "Читает и обновляет профиль")
+Rel(repository, db, "Читает и сохраняет данные", "SQL")
+
+SHOW_LEGEND()
+@enduml
+```
+
+```bash
+# Из корня репозитория; нужна команда plantuml со стандартной библиотекой C4.
+format=svg # или png
+image="docs/img/c4-component-customer-management-$(date +%Y%m%d-%H%M%S).$format"
+sed -n '/^@startuml C4ComponentCustomers$/,/^@enduml$/p' docs/decomposition.md > /tmp/microservices-c4-component.puml
+plantuml -t"$format" -pipe < /tmp/microservices-c4-component.puml > "$image"
+```
+
+</details>
+
+##### [Program and Partner Management](#22-program-and-partner-management)
+
+![Компонентная диаграмма C4 — Program and Partner Management](img/c4-component-program-and-partner-management-20261115-162502.svg)
+
+<details>
+<summary>Исходник PlantUML и генерация PNG/SVG</summary>
+
+```plantuml
+@startuml C4ComponentPrograms
+!pragma layout elk
+!include <C4/C4_Component>
+LAYOUT_TOP_DOWN()
+title Компонентная диаграмма — Program and Partner Management
+
+Container(gateway, "API Gateway", "HTTPS", "Маршрутизирует административные запросы")
+Container(accounts, "Bonus Accounts", "REST-сервис", "Проверяет права на бонусные операции")
+Container(rules, "Loyalty Rules and Levels", "REST-сервис", "Проверяет права на изменение правил")
+Container(campaigns, "Campaigns and Promo Codes", "REST-сервис", "Проверяет права на управление акциями")
+ContainerDb(db, "Program DB", "PostgreSQL", "Программы, компании, заявки и права участия")
+ContainerQueue(events, "Platform Events", "Kafka", "Топик настроек программ")
+
+Container_Boundary(service, "Program and Partner Management") {
+  Component(api, "Programs API", "REST", "Принимает запросы управления и проверки прав")
+  Component(programs, "Loyalty Programs", "Компонент", "Создаёт программы и задаёт настройки")
+  Component(partners, "Partner Participation", "Компонент", "Регистрирует компании, оформляет участие и меняет права")
+  Component(permissions, "Permission Check", "Компонент", "Сверяет действие с правами участника")
+  Component(publisher, "Program Settings Publisher", "Kafka Producer", "Публикует настройки созданной программы")
+}
+
+Rel(gateway, api, "Управляет программами и участием", "REST")
+Rel(accounts, api, "Проверяет права на операции", "REST")
+Rel(rules, api, "Проверяет права на правила", "REST")
+Rel(campaigns, api, "Проверяет права на акции", "REST")
+Rel(api, programs, "Передаёт создание программы")
+Rel(api, partners, "Передаёт запросы по компаниям и участию")
+Rel(api, permissions, "Передаёт проверку действия")
+Rel(programs, partners, "Оформляет участие владельца")
+Rel(programs, db, "Сохраняет программу", "SQL")
+Rel(partners, db, "Сохраняет компании, заявки и права", "SQL")
+Rel(permissions, db, "Читает права участия", "SQL")
+Rel(programs, publisher, "Передаёт настройки созданной программы")
+Rel(publisher, events, "Публикует настройки", "Kafka")
+
+SHOW_LEGEND()
+@enduml
+```
+
+```bash
+# Из корня репозитория; нужна команда plantuml со стандартной библиотекой C4.
+format=svg # или png
+image="docs/img/c4-component-program-and-partner-management-$(date +%Y%m%d-%H%M%S).$format"
+sed -n '/^@startuml C4ComponentPrograms$/,/^@enduml$/p' docs/decomposition.md > /tmp/microservices-c4-component.puml
+plantuml -t"$format" -pipe < /tmp/microservices-c4-component.puml > "$image"
+```
+
+</details>
+
+##### [Bonus Accounts](#23-bonus-accounts)
+
+![Компонентная диаграмма C4 — Bonus Accounts](img/c4-component-bonus-accounts-20261115-160425.svg)
+
+<details>
+<summary>Исходник PlantUML и генерация PNG/SVG</summary>
+
+```plantuml
+@startuml C4ComponentAccounts
+!pragma layout elk
+!include <C4/C4_Component>
+LAYOUT_TOP_DOWN()
+title Компонентная диаграмма — Bonus Accounts
+
+Container(gateway, "API Gateway", "HTTPS", "Маршрутизирует запросы к счетам")
+Container(customers, "Customer Management", "REST-сервис", "Хранит идентичность клиента")
+Container(programs, "Program and Partner Management", "REST-сервис", "Хранит права компаний в программе")
+Container(rules, "Loyalty Rules and Levels", "REST-сервис", "Рассчитывает сумму начисления")
+Container(campaigns, "Campaigns and Promo Codes", "REST-сервис", "Проверяет применимость промокода")
+ContainerDb(db, "Account DB", "PostgreSQL", "Счета, операции и записи outbox на шардах")
+ContainerQueue(events, "Platform Events", "Kafka", "Топик проведённых операций по счетам")
+
+Container_Boundary(service, "Bonus Accounts") {
+  Component(api, "Accounts API", "REST", "Открытие и чтение счёта, начисления и списания")
+  Component(accounts, "Account Management", "Компонент", "Открывает один счёт на клиента в программе и читает баланс")
+  Component(operations, "Bonus Operations", "Компонент", "Проверяет права и получает условия начисления")
+  Component(ledger, "Account Ledger", "Компонент", "Проверяет остаток и идемпотентность, фиксирует операции")
+  Component(publisher, "Outbox Publisher", "Kafka Producer", "Публикует подтверждённые операции после фиксации в БД")
+}
+
+Rel(gateway, api, "Запрашивает операции и баланс", "REST")
+Rel(api, accounts, "Передаёт открытие и чтение счёта")
+Rel(api, operations, "Передаёт начисление или списание")
+Rel(accounts, customers, "Проверяет идентичность клиента", "REST")
+Rel(accounts, db, "Открывает счёт и читает баланс", "SQL")
+Rel(operations, programs, "Проверяет права на операцию", "REST")
+Rel(operations, campaigns, "Проверяет промокод при наличии", "REST")
+Rel(operations, rules, "Запрашивает расчёт начисления", "REST")
+Rel(operations, ledger, "Передаёт операцию к проведению")
+Rel(ledger, db, "Атомарно сохраняет баланс, операцию и запись outbox", "SQL")
+Rel(publisher, db, "Читает записи outbox", "SQL")
+Rel(publisher, events, "Публикует проведённые операции", "Kafka")
+
+SHOW_LEGEND()
+@enduml
+```
+
+```bash
+# Из корня репозитория; нужна команда plantuml со стандартной библиотекой C4.
+format=svg # или png
+image="docs/img/c4-component-bonus-accounts-$(date +%Y%m%d-%H%M%S).$format"
+sed -n '/^@startuml C4ComponentAccounts$/,/^@enduml$/p' docs/decomposition.md > /tmp/microservices-c4-component.puml
+plantuml -t"$format" -pipe < /tmp/microservices-c4-component.puml > "$image"
+```
+
+</details>
+
+##### [Loyalty Rules and Levels](#24-loyalty-rules-and-levels)
+
+![Компонентная диаграмма C4 — Loyalty Rules and Levels](img/c4-component-loyalty-rules-and-levels-20261115-160425.svg)
+
+<details>
+<summary>Исходник PlantUML и генерация PNG/SVG</summary>
+
+```plantuml
+@startuml C4ComponentRules
+!pragma layout elk
+!include <C4/C4_Component>
+LAYOUT_TOP_DOWN()
+title Компонентная диаграмма — Loyalty Rules and Levels
+
+Container(gateway, "API Gateway", "HTTPS", "Маршрутизирует запросы к правилам и уровням")
+Container(accounts, "Bonus Accounts", "REST-сервис", "Запрашивает расчёт начисления")
+Container(programs, "Program and Partner Management", "REST-сервис", "Проверяет права на изменение правил")
+ContainerQueue(events, "Platform Events", "Kafka", "Настройки программ, операции по счетам и изменения уровней")
+ContainerDb(cache, "Rules Cache", "Redis", "Действующие правила по программе")
+ContainerDb(db, "Rules and Levels DB", "PostgreSQL", "Правила, уровни и прогресс клиентов")
+
+Container_Boundary(service, "Loyalty Rules and Levels") {
+  Component(api, "Rules and Levels API", "REST", "Изменение правил, расчёт начисления и чтение уровня")
+  Component(catalog, "Bonus Rules", "Компонент", "Ведёт правила и обновляет их кэш")
+  Component(calculator, "Bonus Calculator", "Компонент", "Учитывает правила, уровень клиента и условия акции")
+  Component(levels, "Loyalty Levels", "Компонент", "Читает уровень и пересчитывает прогресс по операциям")
+  Component(consumer, "Loyalty Event Consumer", "Kafka Consumer", "Принимает настройки программ и операции по счетам")
+  Component(publisher, "Level Event Publisher", "Kafka Producer", "Публикует изменения уровня")
+}
+
+Rel(gateway, api, "Управляет правилами и запрашивает уровень", "REST")
+Rel(accounts, api, "Запрашивает расчёт начисления", "REST")
+Rel(api, catalog, "Передаёт изменение правила")
+Rel(api, calculator, "Передаёт параметры расчёта")
+Rel(api, levels, "Запрашивает уровень и прогресс")
+Rel(catalog, programs, "Проверяет право изменить правило", "REST")
+Rel(catalog, cache, "Кэширует правила с TTL и сбрасывает устаревшие записи")
+Rel(catalog, db, "Сохраняет правила и читает их при промахе", "SQL")
+Rel(calculator, catalog, "Получает действующие правила")
+Rel(calculator, levels, "Получает уровень клиента")
+Rel(levels, db, "Читает и сохраняет уровни и прогресс", "SQL")
+Rel(events, consumer, "Передаёт настройки и проведённые операции", "Kafka")
+Rel(consumer, catalog, "Передаёт новые настройки программы")
+Rel(consumer, levels, "Передаёт операции для пересчёта")
+Rel(levels, publisher, "Передаёт изменение уровня")
+Rel(publisher, events, "Публикует изменение уровня", "Kafka")
+
+SHOW_LEGEND()
+@enduml
+```
+
+```bash
+# Из корня репозитория; нужна команда plantuml со стандартной библиотекой C4.
+format=svg # или png
+image="docs/img/c4-component-loyalty-rules-and-levels-$(date +%Y%m%d-%H%M%S).$format"
+sed -n '/^@startuml C4ComponentRules$/,/^@enduml$/p' docs/decomposition.md > /tmp/microservices-c4-component.puml
+plantuml -t"$format" -pipe < /tmp/microservices-c4-component.puml > "$image"
+```
+
+</details>
+
+##### [Campaigns and Promo Codes](#25-campaigns-and-promo-codes)
+
+![Компонентная диаграмма C4 — Campaigns and Promo Codes](img/c4-component-campaigns-and-promo-codes-20261115-160425.svg)
+
+<details>
+<summary>Исходник PlantUML и генерация PNG/SVG</summary>
+
+```plantuml
+@startuml C4ComponentCampaigns
+!pragma layout elk
+!include <C4/C4_Component>
+LAYOUT_TOP_DOWN()
+title Компонентная диаграмма — Campaigns and Promo Codes
+
+Container(gateway, "API Gateway", "HTTPS", "Маршрутизирует запросы к акциям и промокодам")
+Container(accounts, "Bonus Accounts", "REST-сервис", "Запрашивает применимость промокода при начислении")
+Container(programs, "Program and Partner Management", "REST-сервис", "Хранит права компаний в программе")
+ContainerDb(cache, "Campaigns Cache", "Redis", "Определения акций и промокодов")
+ContainerDb(db, "Campaign DB", "PostgreSQL", "Акции, промокоды и условия применения")
+
+Container_Boundary(service, "Campaigns and Promo Codes") {
+  Component(api, "Campaigns API", "REST", "Создание акций и промокодов, проверка кода")
+  Component(management, "Campaign Management", "Компонент", "Создаёт акции и промокоды для программы")
+  Component(validation, "Promo Code Validation", "Компонент", "Проверяет срок, компанию и условия покупки")
+  Component(repository, "Campaign Repository", "Компонент", "Хранит определения и управляет их кэшем")
+}
+
+Rel(gateway, api, "Управляет акциями и промокодами", "REST")
+Rel(accounts, api, "Проверяет код и получает условия акции", "REST")
+Rel(api, management, "Передаёт запрос на создание")
+Rel(api, validation, "Передаёт код и параметры покупки")
+Rel(management, programs, "Проверяет права на управление акциями", "REST")
+Rel(management, repository, "Сохраняет акции и промокоды")
+Rel(validation, repository, "Получает определения акции и кода")
+Rel(repository, cache, "Кэширует определения с TTL и сбрасывает изменённые записи")
+Rel(repository, db, "Сохраняет данные и читает при промахе", "SQL")
+
+SHOW_LEGEND()
+@enduml
+```
+
+```bash
+# Из корня репозитория; нужна команда plantuml со стандартной библиотекой C4.
+format=svg # или png
+image="docs/img/c4-component-campaigns-and-promo-codes-$(date +%Y%m%d-%H%M%S).$format"
+sed -n '/^@startuml C4ComponentCampaigns$/,/^@enduml$/p' docs/decomposition.md > /tmp/microservices-c4-component.puml
+plantuml -t"$format" -pipe < /tmp/microservices-c4-component.puml > "$image"
+```
+
+</details>
+
+##### [Notifications](#26-notifications)
+
+![Компонентная диаграмма C4 — Notifications](img/c4-component-notifications-20261115-160425.svg)
+
+<details>
+<summary>Исходник PlantUML и генерация PNG/SVG</summary>
+
+```plantuml
+@startuml C4ComponentNotifications
+!pragma layout elk
+!include <C4/C4_Component>
+LAYOUT_TOP_DOWN()
+title Компонентная диаграмма — Notifications
+
+Container(gateway, "API Gateway", "HTTPS", "Маршрутизирует запросы о статусе доставки")
+Container(customers, "Customer Management", "REST-сервис", "Хранит контакты клиентов")
+ContainerQueue(events, "Platform Events", "Kafka", "Изменения баланса и уровня")
+System_Ext(providers, "Провайдеры уведомлений", "Доставляют сообщения клиентам")
+ContainerDb(db, "Notification DB", "PostgreSQL", "Уведомления, статусы и время следующей попытки")
+
+Container_Boundary(service, "Notifications") {
+  Component(api, "Notification Status API", "REST", "Возвращает канал и статус доставки")
+  Component(consumer, "Notification Event Consumer", "Kafka Consumer", "Принимает события баланса и уровня")
+  Component(preparation, "Notification Preparation", "Компонент", "Определяет получателя и готовит уведомление")
+  Component(delivery, "Delivery Worker", "Компонент", "Отправляет уведомления и планирует повторы")
+}
+
+Rel(gateway, api, "Запрашивает статус", "REST")
+Rel(api, db, "Читает канал и статус", "SQL")
+Rel(events, consumer, "Передаёт изменения баланса и уровня", "Kafka")
+Rel(consumer, preparation, "Передаёт событие для уведомления")
+Rel(preparation, customers, "Получает контакты клиента", "REST")
+Rel(preparation, db, "Сохраняет уведомление для доставки", "SQL")
+Rel(delivery, db, "Выбирает задачи и сохраняет результат отправки", "SQL")
+Rel(delivery, providers, "Отправляет уведомление", "HTTPS")
+
+SHOW_LEGEND()
+@enduml
+```
+
+```bash
+# Из корня репозитория; нужна команда plantuml со стандартной библиотекой C4.
+format=svg # или png
+image="docs/img/c4-component-notifications-$(date +%Y%m%d-%H%M%S).$format"
+sed -n '/^@startuml C4ComponentNotifications$/,/^@enduml$/p' docs/decomposition.md > /tmp/microservices-c4-component.puml
+plantuml -t"$format" -pipe < /tmp/microservices-c4-component.puml > "$image"
+```
+
+</details>
+
+##### [Operation History](#27-operation-history)
+
+![Компонентная диаграмма C4 — Operation History](img/c4-component-operation-history-20261115-162502.svg)
+
+<details>
+<summary>Исходник PlantUML и генерация PNG/SVG</summary>
+
+```plantuml
+@startuml C4ComponentHistory
+!pragma layout elk
+!include <C4/C4_Component>
+LAYOUT_TOP_DOWN()
+title Компонентная диаграмма — Operation History
+
+Container(gateway, "API Gateway", "HTTPS", "Маршрутизирует запросы истории")
+ContainerQueue(events, "Platform Events", "Kafka", "Проведённые операции Bonus Accounts")
+ContainerDb(db, "History DB", "PostgreSQL", "Проекция операций, индекс по счёту и курсору")
+
+Container_Boundary(service, "Operation History") {
+  Component(api, "History API", "REST", "Возвращает страницу операций по счёту")
+  Component(query, "History Query", "Компонент", "Проверяет владельца счёта и читает историю по курсору")
+  Component(projector, "History Projector", "Kafka Consumer", "Пополняет историю без дублей при повторной доставке")
+}
+
+Rel(gateway, api, "Передаёт запрос и проверенную идентичность клиента", "REST")
+Rel(api, query, "Передаёт ID клиента, счёт и курсор")
+Rel(query, db, "Читает операции только по счёту этого клиента", "SQL")
+Rel(events, projector, "Передаёт проведённые операции", "Kafka")
+Rel(projector, db, "Записывает проекцию операции", "SQL")
+
+SHOW_LEGEND()
+@enduml
+```
+
+```bash
+# Из корня репозитория; нужна команда plantuml со стандартной библиотекой C4.
+format=svg # или png
+image="docs/img/c4-component-operation-history-$(date +%Y%m%d-%H%M%S).$format"
+sed -n '/^@startuml C4ComponentHistory$/,/^@enduml$/p' docs/decomposition.md > /tmp/microservices-c4-component.puml
+plantuml -t"$format" -pipe < /tmp/microservices-c4-component.puml > "$image"
+```
+
+</details>
+
+##### [API Gateway](#28-api-gateway)
+
+![Компонентная диаграмма C4 — API Gateway](img/c4-component-api-gateway-20261115-164932.svg)
+
+<details>
+<summary>Исходник PlantUML и генерация PNG/SVG</summary>
+
+```plantuml
+@startuml C4ComponentGateway
+!pragma layout elk
+!include <C4/C4_Component>
+LAYOUT_TOP_DOWN()
+title Компонентная диаграмма — API Gateway
+
+Person(customer, "Клиент", "Пользуется личным кабинетом")
+Person(manager, "Представитель компании", "Управляет программами и акциями")
+System_Ext(trading, "Торговые системы", "Получают токены интеграций и вызывают API")
+Container(keycloak, "Keycloak", "OAuth 2.0 / OIDC", "Организует вход и выдаёт токены доступа")
+Container(domain, "Domain сервис", "REST-сервис", "Обрабатывает прикладной запрос")
+
+Container_Boundary(service, "API Gateway") {
+  Component(ingress, "HTTPS Entry Point", "HTTPS", "Разделяет маршруты входа и прикладного API")
+  Component(sso, "SSO Proxy", "Компонент", "Проксирует вход, возврат и запросы на выдачу токенов")
+  Component(validator, "Token Validator", "JWT", "Проверяет подпись, издателя, назначение и срок токена")
+  Component(keys, "JWKS Cache", "Память реплики", "Хранит публичные ключи и обновляет их из Keycloak")
+  Component(router, "API Router", "Компонент", "Передаёт запрос и проверенную идентичность нужному сервису")
+}
+
+Rel(customer, ingress, "Входит и пользуется кабинетом", "HTTPS")
+Rel(manager, ingress, "Входит и управляет программами", "HTTPS")
+Rel(trading, ingress, "Получает токен интеграции и вызывает API", "HTTPS")
+Rel(ingress, sso, "Передаёт маршруты входа без токена API")
+Rel(sso, keycloak, "Проксирует запросы входа и выдачи токенов", "HTTPS")
+Rel(ingress, validator, "Передаёт прикладной запрос на проверку")
+Rel(validator, keys, "Получает ключ проверки подписи")
+Rel(keys, keycloak, "Обновляет публичные ключи", "HTTPS / JWKS")
+Rel(validator, router, "Передаёт запрос после проверки")
+Rel(router, domain, "Передаёт прикладной запрос", "REST")
+
+SHOW_LEGEND()
+@enduml
+```
+
+```bash
+# Из корня репозитория; нужна команда plantuml со стандартной библиотекой C4.
+format=svg # или png
+image="docs/img/c4-component-api-gateway-$(date +%Y%m%d-%H%M%S).$format"
+sed -n '/^@startuml C4ComponentGateway$/,/^@enduml$/p' docs/decomposition.md > /tmp/microservices-c4-component.puml
+plantuml -t"$format" -pipe < /tmp/microservices-c4-component.puml > "$image"
 ```
 
 </details>
